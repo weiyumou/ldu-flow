@@ -1,5 +1,6 @@
-import torch
 import unittest
+
+import torch
 
 from project.models.ldu import LDUTransformer, LDUFlow
 

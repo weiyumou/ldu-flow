@@ -2,15 +2,11 @@
 
 <div align="center"> 
 
-# Sinusoidal Flow
+# Sinusoidal Flow: A Fast Invertible Autoregressive Flow
 
-[![Paper](http://img.shields.io/badge/paper-link-B31B1B.svg)](https://www.dropbox.com/s/ztfoz2bpupbcndy/Sinusoidal_Flow_preprint.pdf?dl=0)
-
-[comment]: <> ([![Conference]&#40;http://img.shields.io/badge/ACML-2021-4b44ce.svg&#41;]&#40;http://www.acml-conf.org/2021/&#41;)
-
-
-[comment]: <> (![CI testing]&#40;https://github.com/PyTorchLightning/deep-learning-project-template/workflows/CI%20testing/badge.svg?branch=master&event=push&#41;)
-
+[![Paper](http://img.shields.io/badge/PMLR-V157-B31B1B.svg)](https://proceedings.mlr.press/v157/wei21a.html)
+[![Conference](http://img.shields.io/badge/ACML-2021-4b44ce.svg)](http://www.acml-conf.org/2021/)
+[![Conference](http://img.shields.io/badge/Best%20Paper-greenyellow.svg)](http://www.acml-conf.org/2021/conference/awards/)
 
 </div>
 
@@ -32,10 +28,10 @@ First, install dependencies (Python 3.8 or above required)
 
 ```bash
 # clone project   
-git clone https://github.com/acml21-190/sinusoidal-flow.git
+git clone https://github.com/weiyumou/ldu-flow.git
 
 # install project   
-cd sinusoidal-flow
+cd ldu-flow
 pip install -e .
  ```   
 

@@ -25,10 +25,10 @@ class IdentityTransformer(nn.Module):
     def __init__(self):
         super(IdentityTransformer, self).__init__()
 
-        self.identity = nn.Identity()
+        self.register_buffer("log_det", torch.zeros(1))
 
     def forward(self, x: torch.Tensor, cond_var=None):  # (*, C, H, W)
-        return self.identity(x), x.new_zeros(*x.size()[:-3])
+        return x, self.log_det.expand_as(x)
 
     @torch.no_grad()
     def inv_transform(self, z: torch.Tensor, cond_var=None, rtol=1e-5, atol=1e-8, max_iter=5000):  # (*, C, H, W)
@@ -41,8 +41,13 @@ class FlipTransformer(nn.Module):
     Flips the input. log_det = 0.
     """
 
+    def __init__(self):
+        super(FlipTransformer, self).__init__()
+
+        self.register_buffer("log_det", torch.zeros(1))
+
     def forward(self, x: torch.Tensor, cond_var=None):  # (*, C, H, W)
-        return torch.flip(x, [-3, -2, -1]), x.new_zeros(*x.size()[:-3])
+        return torch.flip(x, [-3, -2, -1]), self.log_det.expand_as(x)
 
     @torch.no_grad()
     def inv_transform(self, z: torch.Tensor, cond_var=None, rtol=1e-5, atol=1e-8, max_iter=5000):  # (*, C, H, W)

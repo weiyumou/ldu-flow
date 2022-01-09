@@ -11,7 +11,6 @@ from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 from torch.optim.lr_scheduler import CosineAnnealingLR, ReduceLROnPlateau
 from torch.utils.data import TensorDataset, DataLoader
 
-from project.datasets.fmnist.fashion_mnist import FashionMNIST
 from project.datasets.maf.cifar10 import CIFAR10
 from project.datasets.maf.mnist import MNIST
 from project.models.ldu import LDUFlow
@@ -23,23 +22,17 @@ class ImageData(pl.LightningDataModule):
 
         self.dataset = dataset
         self.batch_size = batch_size
-
         self.dims, self.data, self.datasets = None, None, None
 
     def setup(self, stage=None):
         if self.dataset == "mnist":
             self.data = MNIST(logit=True, dequantize=True)
-        elif self.dataset == "cifar10":
-            self.data = CIFAR10(logit=True, flip=True, dequantize=True)
-        elif self.dataset == "fmnist":
-            self.data = FashionMNIST(logit=True, dequantize=True)
-        else:
-            raise ValueError("Invalid dataset. ")
-
-        if self.dataset in ["mnist", "fmnist"]:
             self.dims = (1, 28, 28)
         elif self.dataset == "cifar10":
+            self.data = CIFAR10(logit=True, flip=True, dequantize=True)
             self.dims = (3, 32, 32)
+        else:
+            raise ValueError("Invalid dataset. ")
 
         self.datasets = {
             "train": TensorDataset(torch.from_numpy(self.data.trn.x).reshape(self.data.trn.N, *self.dims)),
@@ -73,35 +66,33 @@ class SinusoidalFlowForImageData(pl.LightningModule):
                                        attn_size=self.hparams.attn_size,
                                        num_fmaps=self.hparams.num_fmaps, num_blocks=self.hparams.num_blocks)
 
-        self.dim = self.hparams.c * self.hparams.h * self.hparams.w
+        self.chw = self.hparams.c * self.hparams.h * self.hparams.w
 
     def training_step(self, batch, batch_idx):
         _, log_probs = self.sinusoidal_flow(batch[0])
         loss = -torch.mean(log_probs)
-        self.log("train_loss", loss)
+        self.log("train/loss", loss)
         return loss
 
     def validation_step(self, batch, batch_idx):
         x = batch[0]
         _, log_probs = self.sinusoidal_flow(x)
 
-        loss = -torch.mean(log_probs)
-        self.log("val_loss", loss)
-
-        bit_per_dim = -log_probs / (self.dim * math.log(2)) - math.log2(1 - 2 * self.hparams.alpha) + 8
+        bit_per_dim = -log_probs / (self.chw * math.log(2)) - math.log2(1 - 2 * self.hparams.alpha) + 8
         bit_per_dim += torch.mean(torch.log2(torch.sigmoid(x)) + torch.log2(1 - torch.sigmoid(x)), dim=(-3, -2, -1))
-        self.log("val_bpd", bit_per_dim)
+
+        self.log("val/loss", -torch.mean(log_probs))
+        self.log("val/bpd", bit_per_dim)
 
     def test_step(self, batch, batch_idx):
         x = batch[0]
         _, log_probs = self.sinusoidal_flow(x)
 
-        loss = -torch.mean(log_probs)
-        self.log("test_loss", loss)
-
-        bit_per_dim = -log_probs / (self.dim * math.log(2)) - math.log2(1 - 2 * self.hparams.alpha) + 8
+        bit_per_dim = -log_probs / (self.chw * math.log(2)) - math.log2(1 - 2 * self.hparams.alpha) + 8
         bit_per_dim += torch.mean(torch.log2(torch.sigmoid(x)) + torch.log2(1 - torch.sigmoid(x)), dim=(-3, -2, -1))
-        self.log("test_bpd", bit_per_dim)
+
+        self.log("test/loss", -torch.mean(log_probs))
+        self.log("test/bpd", bit_per_dim)
 
     def configure_optimizers(self):
         if self.hparams.adamw:
@@ -184,7 +175,7 @@ def main(args):
             model = SinusoidalFlowForImageData.load_from_checkpoint(checkpoint)
             trainer = pl.Trainer(resume_from_checkpoint=checkpoint, gpus=args.gpus)
             test_results = trainer.test(model, datamodule=dm)[0]
-            test_loss, test_bpd = test_results["test_loss"], test_results["test_bpd"]
+            test_loss, test_bpd = test_results["test/loss"], test_results["test/bpd"]
             test_losses.append(test_loss)
             test_bpds.append(test_bpd)
     else:
@@ -192,21 +183,20 @@ def main(args):
             print(f"Run {run}")
 
             model = SinusoidalFlowForImageData(args)
-            checkpoint_callback = ModelCheckpoint(monitor="val_loss")
-            lr_monitor = LearningRateMonitor()
+
+            callbacks = [ModelCheckpoint(monitor="val/loss")]
+            if (args.lr_decay is not None) or args.anneal_lr:
+                callbacks.append(LearningRateMonitor())
 
             if args.resume is None:
-                trainer = pl.Trainer.from_argparse_args(args, callbacks=[checkpoint_callback, lr_monitor],
-                                                        limit_train_batches=1.0, limit_val_batches=1.0,
-                                                        val_check_interval=0.25)
+                trainer = pl.Trainer.from_argparse_args(args, callbacks=callbacks)
             else:
-                trainer = pl.Trainer(resume_from_checkpoint=args.resume, callbacks=[checkpoint_callback, lr_monitor],
-                                     max_epochs=args.max_epochs, max_steps=args.max_steps,
-                                     limit_train_batches=1.0, limit_val_batches=1.0, val_check_interval=0.25)
+                trainer = pl.Trainer(resume_from_checkpoint=args.resume, gpus=args.gpus,
+                                     max_epochs=args.max_epochs, max_steps=args.max_steps)
 
             trainer.fit(model, datamodule=dm)
             test_results = trainer.test(datamodule=dm)[0]
-            test_loss, test_bpd = test_results["test_loss"], test_results["test_bpd"]
+            test_loss, test_bpd = test_results["test/loss"], test_results["test/bpd"]
             test_losses.append(test_loss)
             test_bpds.append(test_bpd)
 

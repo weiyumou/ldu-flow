@@ -1,6 +1,7 @@
+from typing import Tuple
+
 import torch
 from torch import nn as nn
-from typing import Tuple
 
 from project.models.affine import MaskedLinear, FlipTransformer, IdentityTransformer
 from project.models.pixelcnn import PixelCNN
@@ -119,6 +120,8 @@ class LowerShiftTransformer(nn.Module):
             self.conditioner = None
             raise ValueError(f"Invalid conditioner '{conditioner}'. ")
 
+        self.register_buffer("log_det", torch.zeros(1))
+
     def forward(self, x: torch.Tensor, cond_var: torch.Tensor = None) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         :param x: input variable of shape (*, C, H, W)
@@ -129,7 +132,7 @@ class LowerShiftTransformer(nn.Module):
         shift = self.conditioner(x)
         z = x + shift
 
-        return z, x.new_zeros(x.size()[:-3])
+        return z, self.log_det.expand_as(z)
 
     @torch.no_grad()
     def inv_transform(self, z, cond_var=None, rtol=1e-5, atol=1e-8, max_iter=100):
@@ -159,7 +162,7 @@ class UpperShiftTransformer(LowerShiftTransformer):
         shift = self.conditioner(x)
         z = torch.flip(x + shift, dims=(-3, -2, -1))
 
-        return z, x.new_zeros(x.size()[:-3])
+        return z, self.log_det.expand_as(z)
 
 
 class LDUTransformer(nn.Module):

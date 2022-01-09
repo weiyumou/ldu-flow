@@ -1,8 +1,9 @@
-import pytorch_lightning as pl
 import statistics
+from argparse import ArgumentParser
+
+import pytorch_lightning as pl
 import torch
 import torch.optim as optim
-from argparse import ArgumentParser
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 from torch.optim.lr_scheduler import ExponentialLR, CosineAnnealingLR
 from torch.utils.data import TensorDataset, DataLoader
@@ -21,7 +22,6 @@ class UCIData(pl.LightningDataModule):
 
         self.dataset = dataset
         self.batch_size = batch_size
-
         self.dims, self.data, self.datasets = None, None, None
 
     def setup(self, stage=None):
@@ -70,21 +70,23 @@ class SinusoidalFlowForUCIData(pl.LightningModule):
                                        affine=self.hparams.affine,
                                        hid_dims=self.hparams.hid_dims, dropout=self.hparams.dropout)
 
-    def training_step(self, batch, batch_idx):
+    def shared_step(self, batch, batch_idx):
         _, log_probs = self.sinusoidal_flow(batch[0])
         loss = -torch.mean(log_probs)
-        self.log("train_loss", loss)
+        return loss
+
+    def training_step(self, batch, batch_idx):
+        loss = self.shared_step(batch, batch_idx)
+        self.log("train/loss", loss)
         return loss
 
     def validation_step(self, batch, batch_idx):
-        _, log_probs = self.sinusoidal_flow(batch[0])
-        loss = -torch.mean(log_probs)
-        self.log("val_loss", loss)
+        loss = self.shared_step(batch, batch_idx)
+        self.log("val/loss", loss)
 
     def test_step(self, batch, batch_idx):
-        _, log_probs = self.sinusoidal_flow(batch[0])
-        loss = -torch.mean(log_probs)
-        self.log("test_loss", loss)
+        loss = self.shared_step(batch, batch_idx)
+        self.log("test/loss", loss)
 
     def configure_optimizers(self):
         if self.hparams.adamw:
@@ -154,20 +156,19 @@ def main(args):
         print(f"Run {run}")
 
         model = SinusoidalFlowForUCIData(args)
-        checkpoint_callback = ModelCheckpoint(monitor="val_loss")
-        lr_monitor = LearningRateMonitor()
+
+        callbacks = [ModelCheckpoint(monitor="val/loss")]
+        if (args.lr_decay is not None) or args.anneal_lr:
+            callbacks.append(LearningRateMonitor())
 
         if args.resume is None:
-            trainer = pl.Trainer.from_argparse_args(args, callbacks=[checkpoint_callback, lr_monitor],
-                                                    limit_train_batches=1.0, limit_val_batches=1.0,
-                                                    val_check_interval=0.25)
+            trainer = pl.Trainer.from_argparse_args(args, callbacks=callbacks)
         else:
-            trainer = pl.Trainer(resume_from_checkpoint=args.resume, callbacks=[checkpoint_callback, lr_monitor],
-                                 max_epochs=args.max_epochs, max_steps=args.max_steps,
-                                 limit_train_batches=1.0, limit_val_batches=1.0, val_check_interval=0.25)
+            trainer = pl.Trainer(resume_from_checkpoint=args.resume, gpus=args.gpus,
+                                 max_epochs=args.max_epochs, max_steps=args.max_steps)
 
         trainer.fit(model, datamodule=dm)
-        test_loss = trainer.test(datamodule=dm)[0]["test_loss"]
+        test_loss = trainer.test(datamodule=dm)[0]["test/loss"]
         test_losses.append(test_loss)
 
         print(f"Run {run} test loss = {test_loss}")

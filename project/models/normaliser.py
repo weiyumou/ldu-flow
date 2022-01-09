@@ -81,7 +81,7 @@ class DiffPointwiseBatchNorm(PointwiseBatchNorm):
         if self.affine:
             log_dets = torch.sum(self.weight + log_dets)
 
-        log_dets = log_dets.expand(*x.size()[:-3])
+        log_dets = log_dets.sum().expand(*x.size()[:-3])
         return z, log_dets
 
 
@@ -105,8 +105,9 @@ class PointwiseActNorm(nn.Module):
                 batch_mean = torch.mean(x, dim=tuple(range(-x.ndim, -3)))
                 batch_var = torch.var(x, dim=tuple(range(-x.ndim, -3)), unbiased=False)
 
-            self.mean.data = batch_mean
-            self.log_std.data = torch.log(batch_var + self.eps) / 2
+                self.mean.add_(batch_mean)
+                self.log_std.add_(0.5 * torch.log(batch_var + self.eps))
+
             self.initialised = ~self.initialised
 
         return torch.exp(-self.log_std) * (x - self.mean)
